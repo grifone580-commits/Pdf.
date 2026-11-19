@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF Studio Pro — Crea, Converti, Modifica e Firma PDF</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#fff1f2',
+              100: '#ffe4e6',
+              500: '#ef4444',
+              600: '#dc2626',
+              700: '#b91c1c',
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <!-- Librerie PDF Affidabili via CDN -->
+  <!-- 1. PDF.js per il rendering su canvas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- 2. pdf-lib per modificare e firmare PDF esistenti -->
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <!-- 3. jsPDF per creare documenti PDF da zero e convertire file -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    /* Scrollbar personalizzata stile Studio Pro */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.4);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(156, 163, 175, 0.7);
+    }
+
+    /* Griglia sfondo area di lavoro PDF */
+    .workspace-grid {
+      background-image: radial-gradient(rgba(148, 163, 184, 0.22) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* Stile editor rich text */
+    #docEditor:empty:before {
+      content: attr(data-placeholder);
+      color: #9ca3af;
+      pointer-events: none;
+    }
+    #docEditor table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+    }
+    #docEditor th, #docEditor td {
+      border: 1px solid #cbd5e1;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .dark #docEditor th, .dark #docEditor td {
+      border-color: #475569;
+    }
+    #docEditor img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+
+    /* Cursori interattivi per canvas */
+    .cursor-crosshair-tool {
+      cursor: crosshair;
+    }
+    .cursor-text-tool {
+      cursor: text;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100 font-sans antialiased transition-colors duration-200 min-h-screen flex flex-col">
+
+  <!-- Toast / Notifiche non invasive (niente alert()) -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Modale Input Testo Personalizzato (per Modifica PDF) -->
+  <div id="textInputModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-w-md w-full p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+          <i class="fa-solid fa-font text-brand-600"></i> Inserisci Testo sul PDF
+        </h3>
+        <button onclick="closeTextModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Digita il testo da posizionare nel punto cliccato sulla pagina.</p>
+      <input type="text" id="modalTextInput" placeholder="Scrivi qui il testo..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm mb-4" />
+      <div class="flex justify-end gap-2">
+        <button onclick="closeTextModal()" class="px-4 py-2 rounded-xl text-sm font-medium bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition">Annulla</button>
+        <button onclick="confirmAddTextAnnotation()" class="px-4 py-2 rounded-xl text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white shadow transition">Aggiungi Testo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header Principale -->
+  <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 lg:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center text-white shadow-md shadow-red-600/20">
+        <i class="fa-solid fa-file-pdf text-xl"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-lg tracking-tight">PDF Studio <span class="text-brand-600">Pro</span></h1>
+          <span class="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            <i class="fa-solid fa-shield-halved text-[10px]"></i> 100% Locale & Privato
+          </span>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Suite completa per creare, convertire, modificare e firmare documenti PDF</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 sm:gap-3">
+      <button id="themeToggleBtn" onclick="toggleTheme()" title="Cambia tema Chiaro/Scuro" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition flex items-center gap-2 text-sm">
+        <i id="themeIcon" class="fa-solid fa-sun text-amber-400"></i>
+        <span class="hidden md:inline text-xs font-medium" id="themeLabel">Tema Chiaro</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Layout Principale con Barra Laterale + Area Operativa -->
+  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+    
+    <!-- Barra Laterale Navigazione (Responsive: orizzontale su mobile, verticale su desktop) -->
+    <aside class="w-full lg:w-64 bg-white dark:bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 p-2 lg:p-4 flex lg:flex-col justify-between shrink-0 z-20">
+      <nav class="grid grid-cols-4 lg:grid-cols-1 gap-1.5 lg:gap-2 w-full">
+        <button onclick="switchTab('create')" id="tab-create" class="nav-btn active flex flex-col lg:flex-row items-center lg:items-center justify-center lg:justify-start gap-1.5 lg:gap-3 px-2 py-2.5 lg:px-4 lg:py-3.5 rounded-xl text-xs lg:text-sm font-medium transition-all bg-brand-600 text-white shadow-md shadow-brand-600/20">
+          <i class="fa-solid fa-file-circle-plus text-base lg:w-5 text-center"></i>
+          <span>Crea PDF</span>
+        </button>
+
+        <button onclick="switchTab('convert')" id="tab-convert" class="nav-btn flex flex-col lg:flex-row items-center lg:items-center justify-center lg:justify-start gap-1.5 lg:gap-3 px-2 py-2.5 lg:px-4 lg:py-3.5 rounded-xl text-xs lg:text-sm font-medium transition-all text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <i class="fa-solid fa-arrows-rotate text-base lg:w-5 text-center"></i>
+          <span>Converti</span>
+        </button>
+
+        <button onclick="switchTab('edit')" id="tab-edit" class="nav-btn flex flex-col lg:flex-row items-center lg:items-center justify-center lg:justify-start gap-1.5 lg:gap-3 px-2 py-2.5 lg:px-4 lg:py-3.5 rounded-xl text-xs lg:text-sm font-medium transition-all text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <i class="fa-solid fa-pen-to-square text-base lg:w-5 text-center"></i>
+          <span>Modifica PDF</span>
+        </button>
+
+        <button onclick="switchTab('sign')" id="tab-sign" class="nav-btn flex flex-col lg:flex-row items-center lg:items-center justify-center lg:justify-start gap-1.5 lg:gap-3 px-2 py-2.5 lg:px-4 lg:py-3.5 rounded-xl text-xs lg:text-sm font-medium transition-all text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <i class="fa-solid fa-signature text-base lg:w-5 text-center"></i>
+          <span>Firma PDF</span>
+        </button>
+      </nav>
+
+      <!-- Info Privacy in basso nella sidebar (desktop) -->
+      <div class="hidden lg:block mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+          <i class="fa-solid fa-lock text-emerald-500"></i> Elaborazione Client-Side
+        </div>
+        <p class="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+          I tuoi file non vengono mai caricati su server esterni. Tutto avviene direttamente nella memoria del tuo browser.
+        </p>
+      </div>
+    </aside>
+
+    <!-- Contenitore Principale delle 4 Sezioni -->
+    <main class="flex-1 overflow-y-auto p-4 lg:p-6">
+
+      <!-- =================================================================== -->
+      <!-- 1. SEZIONE CREA PDF                                                 -->
+      <!-- =================================================================== -->
+      <section id="section-create" class="tab-section max-w-5xl mx-auto space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div>
+            <h2 class="text-lg font-bold flex items-center gap-2">
+              <i class="fa-solid fa-file-circle-plus text-brand-600"></i> Crea Nuovo Documento PDF
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Componi il documento con titoli, testo formattato, tabelle e immagini, poi esportalo in PDF.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="clearDocEditor()" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+              <i class="fa-solid fa-trash-can mr-1"></i> Svuota
+            </button>
+            <button onclick="exportCreatedPDF()" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-600/20 transition flex items-center gap-2">
+              <i class="fa-solid fa-download"></i> Esporta PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra degli strumenti Editor -->
+        <div class="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center gap-1.5">
+          <input type="text" id="createDocTitle" value="Documento Senza Titolo" placeholder="Nome file PDF..." class="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 mr-2 w-44 sm:w-56" />
+          
+          <div class="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+          <button onclick="execEditorCmd('bold')" title="Grassetto" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-bold"></i></button>
+          <button onclick="execEditorCmd('italic')" title="Corsivo" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-italic"></i></button>
+          <button onclick="execEditorCmd('underline')" title="Sottolineato" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-underline"></i></button>
+          
+          <div class="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+          <button onclick="execEditorCmd('justifyLeft')" title="Allinea a sinistra" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-align-left"></i></button>
+          <button onclick="execEditorCmd('justifyCenter')" title="Centra" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-align-center"></i></button>
+          <button onclick="execEditorCmd('justifyRight')" title="Allinea a destra" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"><i class="fa-solid fa-align-right"></i></button>
+
+          <div class="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+          <button onclick="insertEditorHeading()" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold flex items-center gap-1">
+            <i class="fa-solid fa-heading"></i> Titolo H1
+          </button>
+          <button onclick="insertEditorTable()" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold flex items-center gap-1">
+            <i class="fa-solid fa-table"></i> Tabella
+          </button>
+          <label class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold flex items-center gap-1 cursor-pointer">
+            <i class="fa-regular fa-image"></i> Immagine
+            <input type="file" accept="image/*" class="hidden" onchange="insertEditorImage(event)" />
+          </label>
+        </div>
+
+        <!-- Foglio A4 Virtuale -->
+        <div class="workspace-grid p-4 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 flex justify-center">
+          <div id="docEditor" contenteditable="true" data-placeholder="Inizia a scrivere il tuo documento qui oppure inserisci un titolo, una tabella o un'immagine..." class="w-full max-w-[794px] min-h-[680px] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-6 sm:p-12 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 focus:outline-none leading-relaxed text-sm sm:text-base">
+            <h1 style="font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #dc2626;">Relazione di Progetto — PDF Studio Pro</h1>
+            <p style="margin-bottom: 12px;">Questo è un documento di esempio modificabile. Puoi scrivere paragrafi, formattare il testo in <b>grassetto</b> o <i>corsivo</i>, aggiungere tabelle strutturate e inserire immagini direttamente dal tuo dispositivo.</p>
+            <table>
+              <thead>
+                <tr style="background-color: rgba(220, 38, 38, 0.08);">
+                  <th>Voce</th>
+                  <th>Descrizione</th>
+                  <th>Stato</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Creazione PDF</td>
+                  <td>Generazione immediata lato client</td>
+                  <td>Attivo</td>
+                </tr>
+                <tr>
+                  <td>Privacy</td>
+                  <td>Nessun invio dati al cloud</td>
+                  <td>Garantita</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top: 12px;">Clicca su <b>Esporta PDF</b> in alto a destra per scaricare il risultato finale.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 2. SEZIONE CONVERTI IN PDF                                          -->
+      <!-- =================================================================== -->
+      <section id="section-convert" class="tab-section hidden max-w-5xl mx-auto space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div>
+            <h2 class="text-lg font-bold flex items-center gap-2">
+              <i class="fa-solid fa-arrows-rotate text-brand-600"></i> Converti Immagini o Testo in PDF
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Carica uno o più file (JPG, PNG, WebP, TXT) e uniscili in un unico documento PDF multi-pagina.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="clearConvertQueue()" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+              <i class="fa-solid fa-trash-can mr-1"></i> Svuota Lista
+            </button>
+            <button onclick="convertFilesToPDF()" id="btnConvertRun" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-600/20 transition flex items-center gap-2">
+              <i class="fa-solid fa-file-export"></i> Converti e Scarica PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Area Dropzone -->
+        <label id="convertDropzone" class="flex flex-col items-center justify-center p-8 sm:p-12 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 rounded-2xl bg-white dark:bg-slate-900/60 cursor-pointer transition text-center">
+          <div class="w-14 h-14 rounded-2xl bg-brand-500/10 text-brand-600 flex items-center justify-center mb-3">
+            <i class="fa-solid fa-cloud-arrow-up text-2xl"></i>
+          </div>
+          <p class="text-sm font-semibold mb-1">Trascina qui i tuoi file oppure clicca per selezionarli</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Formati supportati: Immagini (JPG, PNG, WebP) e File di testo (.TXT)</p>
+          <input type="file" id="convertFileInput" multiple accept="image/jpeg,image/png,image/webp,text/plain,.txt" class="hidden" onchange="handleConvertFiles(event)" />
+        </label>
+
+        <!-- Impostazioni rapide conversione -->
+        <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex flex-wrap items-center gap-4 text-xs">
+            <label class="flex items-center gap-2 font-medium">
+              <span>Orientamento pagina:</span>
+              <select id="convertOrientation" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <option value="p">Verticale (Portrait)</option>
+                <option value="l">Orizzontale (Landscape)</option>
+              </select>
+            </label>
+            <label class="flex items-center gap-2 font-medium">
+              <span>Adattamento immagini:</span>
+              <select id="convertFit" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <option value="contain">Adatta al foglio (con margini)</option>
+                <option value="full">Piena pagina</option>
+              </select>
+            </label>
+          </div>
+          <span id="convertCountBadge" class="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+            0 file selezionati
+          </span>
+        </div>
+
+        <!-- Griglia Anteprima File da Convertire -->
+        <div id="convertPreviewGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <!-- Popolato dinamicamente via JS -->
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 3. SEZIONE MODIFICA PDF                                             -->
+      <!-- =================================================================== -->
+      <section id="section-edit" class="tab-section hidden max-w-6xl mx-auto space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div>
+            <h2 class="text-lg font-bold flex items-center gap-2">
+              <i class="fa-solid fa-pen-to-square text-brand-600"></i> Modifica e Annota PDF
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Aggiungi testo, disegna a mano libera, evidenzia o copri dati sensibili con rettangoli bianchi.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer transition flex items-center gap-2">
+              <i class="fa-solid fa-folder-open text-brand-600"></i> Apri PDF
+              <input type="file" accept="application/pdf" class="hidden" onchange="loadEditPDF(event)" />
+            </label>
+            <button onclick="saveEditedPDF()" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white shadow-md shadow-brand-600/20 transition flex items-center gap-2">
+              <i class="fa-solid fa-floppy-disk"></i> Salva PDF Modificato
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar Strumenti Modifica PDF -->
+        <div id="editToolbar" class="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-3">
+          <!-- Selettore Strumento -->
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button onclick="setEditTool('text')" id="tool-text" class="edit-tool-btn px-3 py-2 rounded-xl text-xs font-semibold bg-brand-600 text-white flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-font"></i> Testo
+            </button>
+            <button onclick="setEditTool('draw')" id="tool-draw" class="edit-tool-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-pen"></i> Penna
+            </button>
+            <button onclick="setEditTool('highlight')" id="tool-highlight" class="edit-tool-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-highlighter"></i> Evidenziatore
+            </button>
+            <button onclick="setEditTool('redact')" id="tool-redact" class="edit-tool-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-eraser"></i> Copertura Bianca
+            </button>
+          </div>
+
+          <!-- Opzioni Colore / Dimensione / Annulla -->
+          <div class="flex flex-wrap items-center gap-3">
+            <label class="flex items-center gap-1.5 text-xs font-medium">
+              <span>Colore:</span>
+              <input type="color" id="editColorPicker" value="#dc2626" class="w-7 h-7 rounded cursor-pointer border-0 bg-transparent" />
+            </label>
+            <label class="flex items-center gap-1.5 text-xs font-medium">
+              <span>Dim:</span>
+              <select id="editSizePicker" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                <option value="12">Piccolo (12px)</option>
+                <option value="16" selected>Medio (16px)</option>
+                <option value="22">Grande (22px)</option>
+                <option value="30">Extra (30px)</option>
+              </select>
+            </label>
+            <button onclick="undoEditAction()" title="Annulla ultima modifica su questa pagina" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1">
+              <i class="fa-solid fa-rotate-left"></i> Annulla
+            </button>
+          </div>
+
+          <!-- Navigazione Pagine -->
+          <div class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl">
+            <button onclick="changeEditPage(-1)" class="p-1.5 hover:text-brand-600 transition"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+            <span id="editPageIndicator" class="text-xs font-semibold min-w-[75px] text-center">Pagina 0 / 0</span>
+            <button onclick="changeEditPage(1)" class="p-1.5 hover:text-brand-600 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+          </div>
+        </div>
+
+        <!-- Area Canvas Visualizzazione e Modifica PDF -->
+        <div class="workspace-grid min-h-[540px] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 flex items-center justify-center overflow-auto relative">
+          <!-- Placeholder iniziale -->
+          <div id="editEmptyState" class="text-center max-w-sm p-6">
+            <div class="w-16 h-16 rounded-2xl bg-slate-200 dark:bg-slate-800 text-slate-500 flex items-center justify-center mx-auto mb-4">
+              <i class="fa-regular fa-file-pdf text-3xl"></i>
+            </div>
+            <h3 class="font-semibold text-base mb-1">Nessun PDF caricato</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Carica un documento PDF dal tuo computer per iniziare ad aggiungere testo, disegni o correzioni.</p>
+            <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold cursor-pointer shadow">
+              <i class="fa-solid fa-upload"></i> Seleziona File PDF
+              <input type="file" accept="application/pdf" class="hidden" onchange="loadEditPDF(event)" />
+            </label>
+          </div>
+
+          <!-- Wrapper Canvas Sovrapposti (Base PDF + Overlay Annotazioni) -->
+          <div id="editCanvasWrapper" class="hidden relative shadow-2xl rounded-lg overflow-hidden bg-white">
+            <canvas id="editPdfCanvas" class="block"></canvas>
+            <canvas id="editOverlayCanvas" class="absolute inset-0 cursor-text-tool touch-none"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 4. SEZIONE FIRMA PDF                                                -->
+      <!-- =================================================================== -->
+      <section id="section-sign" class="tab-section hidden max-w-6xl mx-auto space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div>
+            <h2 class="text-lg font-bold flex items-center gap-2">
+              <i class="fa-solid fa-signature text-brand-600"></i> Firma Documento PDF
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Disegna la tua firma autografa o carica un'immagine, posizionala sul documento e scarica il PDF firmato.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer transition flex items-center gap-2">
+              <i class="fa-solid fa-folder-open text-brand-600"></i> Carica PDF da Firmare
+              <input type="file" accept="application/pdf" class="hidden" onchange="loadSignPDF(event)" />
+            </label>
+            <button onclick="saveSignedPDF()" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition flex items-center gap-2">
+              <i class="fa-solid fa-file-signature"></i> Scarica PDF Firmato
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <!-- Colonna Sinistra: Pad di Firma & Controlli -->
+          <div class="lg:col-span-4 space-y-4">
+            <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold flex items-center gap-2">
+                  <i class="fa-solid fa-pen-nib text-brand-600"></i> Crea la tua Firma
+                </h3>
+                <div class="flex items-center gap-1.5">
+                  <button onclick="setSignInk('#0f172a')" title="Inchiostro Nero" class="w-5 h-5 rounded-full bg-slate-900 border-2 border-slate-400 focus:ring-2 ring-brand-500"></button>
+                  <button onclick="setSignInk('#1d4ed8')" title="Inchiostro Blu" class="w-5 h-5 rounded-full bg-blue-700 border-2 border-blue-300 focus:ring-2 ring-brand-500"></button>
+                </div>
+              </div>
+
+              <!-- Canvas Pad Firma -->
+              <div class="relative rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-white overflow-hidden">
+                <canvas id="signaturePadCanvas" class="w-full h-40 block touch-none cursor-crosshair"></canvas>
+                <div class="absolute bottom-2 left-3 right-3 border-b border-slate-300 pointer-events-none flex justify-between text-[10px] text-slate-400">
+                  <span>X Firma qui</span>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <button onclick="clearSignaturePad()" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+                  <i class="fa-solid fa-eraser mr-1"></i> Cancella
+                </button>
+                <label class="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer transition">
+                  <i class="fa-solid fa-upload mr-1"></i> Carica Immagine
+                  <input type="file" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="uploadSignatureImage(event)" />
+                </label>
+              </div>
+
+              <button onclick="applySignatureToPage()" class="w-full py-2.5 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white shadow transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-stamp"></i> Applica Firma sulla Pagina
+              </button>
+            </div>
+
+            <!-- Controlli Posizione e Dimensione Firma -->
+            <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+              <h3 class="text-sm font-bold flex items-center gap-2">
+                <i class="fa-solid fa-up-down-left-right text-brand-600"></i> Posizione & Dimensione
+              </h3>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Trascina la firma direttamente sul foglio PDF a destra oppure usa lo slider per ridimensionarla.
+              </p>
+              <div>
+                <div class="flex justify-between text-xs font-medium mb-1">
+                  <span>Larghezza Firma</span>
+                  <span id="signScaleValue">160 px</span>
+                </div>
+                <input type="range" id="signScaleSlider" min="70" max="340" value="160" oninput="updateSignatureSize(this.value)" class="w-full accent-brand-600 cursor-pointer" />
+              </div>
+              <button onclick="removePlacedSignature()" class="w-full py-2 rounded-xl text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition">
+                <i class="fa-solid fa-trash mr-1"></i> Rimuovi Firma dalla Pagina
+              </button>
+            </div>
+          </div>
+
+          <!-- Colonna Destra: Anteprima PDF e Posizionamento Firma -->
+          <div class="lg:col-span-8 flex flex-col gap-3">
+            <!-- Barra Navigazione Pagina Firma -->
+            <div class="bg-white dark:bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Seleziona la pagina da firmare:</span>
+              <div class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl">
+                <button onclick="changeSignPage(-1)" class="p-1.5 hover:text-brand-600 transition"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+                <span id="signPageIndicator" class="text-xs font-semibold min-w-[75px] text-center">Pagina 0 / 0</span>
+                <button onclick="changeSignPage(1)" class="p-1.5 hover:text-brand-600 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+              </div>
+            </div>
+
+            <!-- Area Foglio PDF Firmato -->
+            <div class="workspace-grid min-h-[520px] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 flex items-center justify-center overflow-auto relative">
+              <div id="signEmptyState" class="text-center max-w-sm p-6">
+                <div class="w-16 h-16 rounded-2xl bg-slate-200 dark:bg-slate-800 text-slate-500 flex items-center justify-center mx-auto mb-4">
+                  <i class="fa-solid fa-file-signature text-3xl"></i>
+                </div>
+                <h3 class="font-semibold text-base mb-1">Carica un PDF per firmarlo</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Potrai disegnare la tua firma a sinistra e trascinarla esattamente dove serve.</p>
+                <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold cursor-pointer shadow">
+                  <i class="fa-solid fa-upload"></i> Carica Documento PDF
+                  <input type="file" accept="application/pdf" class="hidden" onchange="loadSignPDF(event)" />
+                </label>
+              </div>
+
+              <!-- Contenitore Foglio PDF + Elemento Firma Trascinabile -->
+              <div id="signCanvasWrapper" class="hidden relative shadow-2xl rounded-lg overflow-hidden bg-white select-none">
+                <canvas id="signPdfCanvas" class="block"></canvas>
+                <!-- Box Firma Trascinabile -->
+                <div id="draggableSignatureBox" class="hidden absolute top-10 left-10 border-2 border-dashed border-brand-600 bg-brand-500/5 rounded-lg p-1 cursor-move touch-none group" style="width: 160px;">
+                  <img id="placedSignatureImg" src="" alt="Firma" class="w-full h-auto pointer-events-none select-none" />
+                  <span class="absolute -top-5 left-0 bg-brand-600 text-white text-[10px] px-1.5 py-0.5 rounded opacity-90 pointer-events-none">Trascina</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- LOGICA JAVASCRIPT COMPLETA                                            -->
+  <!-- ===================================================================== -->
+  <script>
+    // Configurazione Worker PDF.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // =========================================================================
+    // 0. GESTIONE TEMA, NAVIGAZIONE TAB E NOTIFICHE TOAST
+    // =========================================================================
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.classList.toggle('dark');
+      const icon = document.getElementById('themeIcon');
+      const label = document.getElementById('themeLabel');
+      if (isDark) {
+        icon.className = 'fa-solid fa-sun text-amber-400';
+        label.textContent = 'Tema Chiaro';
+      } else {
+        icon.className = 'fa-solid fa-moon text-slate-700';
+        label.textContent = 'Tema Scuro';
+      }
+    }
+
+    function switchTab(tabName) {
+      // Nascondi tutte le sezioni
+      document.querySelectorAll('.tab-section').forEach(sec => sec.classList.add('hidden'));
+      document.getElementById(`section-${tabName}`).classList.remove('hidden');
+
+      // Aggiorna stile bottoni sidebar
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('bg-brand-600', 'text-white', 'shadow-md', 'shadow-brand-600/20');
+        btn.classList.add('text-slate-600', 'dark:text-slate-300', 'hover:bg-slate-100', 'dark:hover:bg-slate-800');
+      });
+      const activeBtn = document.getElementById(`tab-${tabName}`);
+      activeBtn.classList.remove('text-slate-600', 'dark:text-slate-300', 'hover:bg-slate-100', 'dark:hover:bg-slate-800');
+      activeBtn.classList.add('bg-brand-600', 'text-white', 'shadow-md', 'shadow-brand-600/20');
+
+      // Se si apre il tab Firma, assicurati che il canvas del pad sia dimensionato correttamente
+      if (tabName === 'sign') {
+        setTimeout(resizeSignaturePad, 50);
+      }
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-rose-600 text-white',
+        info: 'bg-slate-800 dark:bg-slate-700 text-white'
+      };
+      const icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-exclamation',
+        info: 'fa-circle-info'
+      };
+      toast.className = `${colors[type] || colors.info} px-4 py-3 rounded-xl shadow-xl text-xs sm:text-sm font-medium flex items-center gap-2.5 transform transition-all duration-300 translate-y-2 opacity-0 pointer-events-auto`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span>`;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // =========================================================================
+    // 1. CREA PDF (EDITOR DA ZERO -> JSPDF)
+    // =========================================================================
+    function execEditorCmd(command, value = null) {
+      document.execCommand(command, false, value);
+      document.getElementById('docEditor').focus();
+    }
+
+    function insertEditorHeading() {
+      const editor = document.getElementById('docEditor');
+      const h1 = document.createElement('h1');
+      h1.style.fontSize = '20px';
+      h1.style.fontWeight = '700';
+      h1.style.margin = '14px 0 8px 0';
+      h1.textContent = 'Nuovo Titolo Sezione';
+      editor.appendChild(h1);
+      const p = document.createElement('p');
+      p.textContent = 'Scrivi qui il contenuto del paragrafo...';
+      editor.appendChild(p);
+      showToast('Titolo inserito nel documento', 'info');
+    }
+
+    function insertEditorTable() {
+      const editor = document.getElementById('docEditor');
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Colonna 1</th>
+            <th>Colonna 2</th>
+            <th>Colonna 3</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dato A1</td>
+            <td>Dato A2</td>
+            <td>Dato A3</td>
+          </tr>
+          <tr>
+            <td>Dato B1</td>
+            <td>Dato B2</td>
+            <td>Dato B3</td>
+          </tr>
+        </tbody>
+      `;
+      editor.appendChild(table);
+      const p = document.createElement('p');
+      p.innerHTML = '<br>';
+      editor.appendChild(p);
+      showToast('Tabella 3x3 aggiunta', 'info');
+    }
+
+    function insertEditorImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.style.maxHeight = '260px';
+        document.getElementById('docEditor').appendChild(img);
+        showToast('Immagine inserita nel documento', 'success');
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    }
+
+    function clearDocEditor() {
+      document.getElementById('docEditor').innerHTML = '';
+      showToast('Foglio svuotato', 'info');
+    }
+
+    async function exportCreatedPDF() {
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const editor = document.getElementById('docEditor');
+        const fileName = (document.getElementById('createDocTitle').value.trim() || 'documento') + '.pdf';
+
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 18;
+        const maxLineWidth = pageWidth - margin * 2;
+        let cursorY = 22;
+
+        const checkPageBreak = (neededHeight) => {
+          if (cursorY + neededHeight > pageHeight - margin) {
+            doc.addPage();
+            cursorY = margin;
+          }
+        };
+
+        // Scansiona i nodi figli dell'editor per costruire un PDF pulito e vettoriale
+        const nodes = Array.from(editor.childNodes);
+        if (nodes.length === 0 || editor.textContent.trim() === '' && editor.querySelectorAll('img, table').length === 0) {
+          showToast('Il documento è vuoto! Scrivi qualcosa prima di esportare.', 'error');
+          return;
+        }
+
+        for (const node of nodes) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent.trim();
+            if (!text) continue;
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(11);
+            doc.setTextColor(30, 41, 59);
+            const lines = doc.splitTextToSize(text, maxLineWidth);
+            checkPageBreak(lines.length * 6);
+            doc.text(lines, margin, cursorY);
+            cursorY += lines.length * 6 + 3;
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const tag = node.tagName.toUpperCase();
+
+            if (tag === 'H1' || tag === 'H2' || tag === 'H3') {
+              const text = node.innerText.trim();
+              if (!text) continue;
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(tag === 'H1' ? 18 : 14);
+              doc.setTextColor(185, 28, 28);
+              const lines = doc.splitTextToSize(text, maxLineWidth);
+              checkPageBreak(lines.length * 8 + 4);
+              doc.text(lines, margin, cursorY);
+              cursorY += lines.length * 8 + 4;
+            } else if (tag === 'TABLE') {
+              const rows = Array.from(node.querySelectorAll('tr'));
+              rows.forEach((tr, rIdx) => {
+                const cells = Array.from(tr.querySelectorAll('th, td'));
+                if (cells.length === 0) return;
+                const colWidth = maxLineWidth / cells.length;
+                const rowHeight = 9;
+                checkPageBreak(rowHeight);
+
+                cells.forEach((cell, cIdx) => {
+                  const x = margin + cIdx * colWidth;
+                  if (rIdx === 0) {
+                    doc.setFillColor(241, 245, 249);
+                    doc.rect(x, cursorY - 6, colWidth, rowHeight, 'FD');
+                    doc.setFont('helvetica', 'bold');
+                  } else {
+                    doc.rect(x, cursorY - 6, colWidth, rowHeight, 'S');
+                    doc.setFont('helvetica', 'normal');
+                  }
+                  doc.setFontSize(10);
+                  doc.setTextColor(30, 41, 59);
+                  const cellText = cell.innerText.trim().substring(0, 35);
+                  doc.text(cellText, x + 2, cursorY);
+                });
+                cursorY += rowHeight;
+              });
+              cursorY += 4;
+            } else if (tag === 'IMG' || node.querySelector('img')) {
+              const imgEl = tag === 'IMG' ? node : node.querySelector('img');
+              if (imgEl && imgEl.src) {
+                const imgProps = doc.getImageProperties(imgEl.src);
+                const ratio = imgProps.width / imgProps.height;
+                let renderW = Math.min(maxLineWidth, 120);
+                let renderH = renderW / ratio;
+                if (renderH > 110) {
+                  renderH = 110;
+                  renderW = renderH * ratio;
+                }
+                checkPageBreak(renderH + 6);
+                doc.addImage(imgEl.src, 'JPEG', margin, cursorY, renderW, renderH);
+                cursorY += renderH + 6;
+              }
+            } else {
+              const text = node.innerText ? node.innerText.trim() : '';
+              if (!text) continue;
+              const isBold = node.querySelector('b, strong') !== null && node.innerText === node.querySelector('b, strong')?.innerText;
+              doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+              doc.setFontSize(11);
+              doc.setTextColor(30, 41, 59);
+              const lines = doc.splitTextToSize(text, maxLineWidth);
+              checkPageBreak(lines.length * 6);
+              doc.text(lines, margin, cursorY);
+              cursorY += lines.length * 6 + 3;
+            }
+          }
+        }
+
+        doc.save(fileName);
+        showToast(`PDF "${fileName}" esportato con successo!`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Errore durante la generazione del PDF.', 'error');
+      }
+    }
+
+    // =========================================================================
+    // 2. CONVERTI IN PDF (IMMAGINI + TXT -> UNICO PDF MULTI-PAGINA)
+    // =========================================================================
+    let convertQueue = [];
+
+    // Supporto Drag & Drop sulla dropzone
+    const dropzone = document.getElementById('convertDropzone');
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('border-brand-500', 'bg-brand-500/5');
+    });
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('border-brand-500', 'bg-brand-500/5');
+    });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-brand-500', 'bg-brand-500/5');
+      if (e.dataTransfer.files.length) {
+        processConvertFileList(e.dataTransfer.files);
+      }
+    });
+
+    function handleConvertFiles(event) {
+      processConvertFileList(event.target.files);
+      event.target.value = '';
+    }
+
+    function processConvertFileList(fileList) {
+      const files = Array.from(fileList);
+      files.forEach(file => {
+        const isImage = file.type.startsWith('image/');
+        const isText = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
+        if (!isImage && !isText) {
+          showToast(`Formato non supportato: ${file.name}`, 'error');
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          convertQueue.push({
+            id: Date.now() + Math.random(),
+            name: file.name,
+            type: isImage ? 'image' : 'text',
+            data: e.target.result
+          });
+          renderConvertGrid();
+        };
+
+        if (isImage) reader.readAsDataURL(file);
+        else reader.readAsText(file);
+      });
+    }
+
+    function renderConvertGrid() {
+      const grid = document.getElementById('convertPreviewGrid');
+      const badge = document.getElementById('convertCountBadge');
+      badge.textContent = `${convertQueue.length} file selezionati`;
+      grid.innerHTML = '';
+
+      convertQueue.forEach((item, index) => {
+        const card = document.createElement('div');
+        card.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-sm flex flex-col justify-between gap-2';
+
+        const previewHtml = item.type === 'image'
+          ? `<img src="${item.data}" alt="${item.name}" class="w-full h-36 object-contain bg-slate-100 dark:bg-slate-800 rounded-xl p-1" />`
+          : `<div class="w-full h-36 bg-slate-100 dark:bg-slate-800 rounded-xl p-3 text-[11px] font-mono text-slate-600 dark:text-slate-300 overflow-hidden whitespace-pre-wrap">${item.data.substring(0, 260)}...</div>`;
+
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-bold px-2 py-0.5 rounded-md bg-brand-500/10 text-brand-600">Pagina ${index + 1}</span>
+              <button onclick="removeConvertItem(${index})" class="text-slate-400 hover:text-rose-500 p-1 transition" title="Rimuovi">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            ${previewHtml}
+          </div>
+          <p class="text-xs font-medium truncate text-slate-700 dark:text-slate-200" title="${item.name}">${item.name}</p>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function removeConvertItem(index) {
+      convertQueue.splice(index, 1);
+      renderConvertGrid();
+    }
+
+    function clearConvertQueue() {
+      convertQueue = [];
+      renderConvertGrid();
+      showToast('Lista conversione svuotata', 'info');
+    }
+
+    async function convertFilesToPDF() {
+      if (convertQueue.length === 0) {
+        showToast('Carica almeno un file immagine o testo prima di convertire.', 'error');
+        return;
+      }
+
+      try {
+        const { jsPDF } = window.jspdf;
+        const orientation = document.getElementById('convertOrientation').value;
+        const fitMode = document.getElementById('convertFit').value;
+        const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
+
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+
+        for (let i = 0; i < convertQueue.length; i++) {
+          if (i > 0) doc.addPage();
+          const item = convertQueue[i];
+
+          if (item.type === 'image') {
+            const props = doc.getImageProperties(item.data);
+            const imgRatio = props.width / props.height;
+            const margin = fitMode === 'full' ? 0 : 12;
+            const availW = pageW - margin * 2;
+            const availH = pageH - margin * 2;
+            const pageRatio = availW / availH;
+
+            let drawW, drawH;
+            if (imgRatio > pageRatio) {
+              drawW = availW;
+              drawH = availW / imgRatio;
+            } else {
+              drawH = availH;
+              drawW = availH * imgRatio;
+            }
+
+            const posX = (pageW - drawW) / 2;
+            const posY = (pageH - drawH) / 2;
+            const imgFormat = props.fileType || 'JPEG';
+            doc.addImage(item.data, imgFormat, posX, posY, drawW, drawH);
+          } else {
+            // Testo .txt
+            const margin = 16;
+            const maxW = pageW - margin * 2;
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(10.5);
+            doc.setTextColor(20, 20, 20);
+            const lines = doc.splitTextToSize(item.data, maxW);
+            let y = margin + 4;
+            lines.forEach(line => {
+              if (y > pageH - margin) {
+                doc.addPage();
+                y = margin + 4;
+              }
+              doc.text(line, margin, y);
+              y += 5.5;
+            });
+          }
+        }
+
+        doc.save('documenti_convertiti.pdf');
+        showToast('Conversione completata! PDF scaricato.', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Errore durante la conversione dei file.', 'error');
+      }
+    }
+
+    // =========================================================================
+    // 3. MODIFICA PDF (PDF.JS VIEWER + ANNOTAZIONI OVERLAY + PDF-LIB SAVE)
+    // =========================================================================
+    let editState = {
+      pdfBytes: null,
+      pdfDocJs: null,
+      currentPage: 1,
+      totalPages: 0,
+      scale: 1.35,
+      tool: 'text', // 'text' | 'draw' | 'highlight' | 'redact'
+      annotations: {}, // { pageNum: [ { type, ... } ] }
+      isDrawing: false,
+      startX: 0,
+      startY: 0,
+      currentPath: [],
+      pendingTextCoords: null
+    };
+
+    function setEditTool(tool) {
+      editState.tool = tool;
+      document.querySelectorAll('.edit-tool-btn').forEach(btn => {
+        btn.classList.remove('bg-brand-600', 'text-white');
+        btn.classList.add('bg-slate-100', 'dark:bg-slate-800', 'hover:bg-slate-200', 'dark:hover:bg-slate-700');
+      });
+      const active = document.getElementById(`tool-${tool}`);
+      active.classList.remove('bg-slate-100', 'dark:bg-slate-800', 'hover:bg-slate-200', 'dark:hover:bg-slate-700');
+      active.classList.add('bg-brand-600', 'text-white');
+
+      const overlay = document.getElementById('editOverlayCanvas');
+      overlay.className = tool === 'text'
+        ? 'absolute inset-0 cursor-text-tool touch-none'
+        : 'absolute inset-0 cursor-crosshair-tool touch-none';
+    }
+
+    async function loadEditPDF(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        // Cloniamo i byte per evitare che PDF.js trasferisca/stacchi il buffer
+        editState.pdfBytes = new Uint8Array(arrayBuffer.slice(0));
+        editState.pdfDocJs = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        editState.totalPages = editState.pdfDocJs.numPages;
+        editState.currentPage = 1;
+        editState.annotations = {};
+
+        document.getElementById('editEmptyState').classList.add('hidden');
+        document.getElementById('editCanvasWrapper').classList.remove('hidden');
+
+        await renderEditPage();
+        showToast(`PDF caricato (${editState.totalPages} pagine)`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Impossibile leggere il file PDF selezionato.', 'error');
+      }
+      event.target.value = '';
+    }
+
+    async function renderEditPage() {
+      if (!editState.pdfDocJs) return;
+      const page = await editState.pdfDocJs.getPage(editState.currentPage);
+      const viewport = page.getViewport({ scale: editState.scale });
+
+      const pdfCanvas = document.getElementById('editPdfCanvas');
+      const overlayCanvas = document.getElementById('editOverlayCanvas');
+      const ctx = pdfCanvas.getContext('2d');
+
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      overlayCanvas.width = viewport.width;
+      overlayCanvas.height = viewport.height;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      document.getElementById('editPageIndicator').textContent = `Pagina ${editState.currentPage} / ${editState.totalPages}`;
+
+      redrawEditAnnotations();
+    }
+
+    function changeEditPage(delta) {
+      if (!editState.pdfDocJs) return;
+      const next = editState.currentPage + delta;
+      if (next >= 1 && next <= editState.totalPages) {
+        editState.currentPage = next;
+        renderEditPage();
+      }
+    }
+
+    function getCanvasCoords(canvas, clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    // Gestione eventi Mouse & Touch su Overlay Canvas (Modifica PDF)
+    const editOverlay = document.getElementById('editOverlayCanvas');
+
+    function handleEditPointerDown(clientX, clientY) {
+      if (!editState.pdfDocJs) return;
+      const pos = getCanvasCoords(editOverlay, clientX, clientY);
+
+      if (editState.tool === 'text') {
+        editState.pendingTextCoords = pos;
+        document.getElementById('modalTextInput').value = '';
+        const modal = document.getElementById('textInputModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => document.getElementById('modalTextInput').focus(), 50);
+        return;
+      }
+
+      editState.isDrawing = true;
+      editState.startX = pos.x;
+      editState.startY = pos.y;
+      editState.currentPath = [pos];
+    }
+
+    function handleEditPointerMove(clientX, clientY) {
+      if (!editState.isDrawing) return;
+      const pos = getCanvasCoords(editOverlay, clientX, clientY);
+      const ctx = editOverlay.getContext('2d');
+      const color = document.getElementById('editColorPicker').value;
+      const size = parseInt(document.getElementById('editSizePicker').value, 10);
+
+      redrawEditAnnotations();
+
+      if (editState.tool === 'draw' || editState.tool === 'highlight') {
+        editState.currentPath.push(pos);
+        ctx.save();
+        ctx.beginPath();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        if (editState.tool === 'highlight') {
+          ctx.strokeStyle = 'rgba(250, 204, 21, 0.45)';
+          ctx.lineWidth = size * 1.4;
+        } else {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(2, size / 5);
+        }
+        editState.currentPath.forEach((pt, i) => {
+          if (i === 0) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+        });
+        ctx.stroke();
+        ctx.restore();
+      } else if (editState.tool === 'redact') {
+        const w = pos.x - editState.startX;
+        const h = pos.y - editState.startY;
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.setLineDash([4, 4]);
+        ctx.fillRect(editState.startX, editState.startY, w, h);
+        ctx.strokeRect(editState.startX, editState.startY, w, h);
+        ctx.restore();
+      }
+    }
+
+    function handleEditPointerUp(clientX, clientY) {
+      if (!editState.isDrawing) return;
+      editState.isDrawing = false;
+
+      if (!editState.annotations[editState.currentPage]) {
+        editState.annotations[editState.currentPage] = [];
+      }
+
+      const color = document.getElementById('editColorPicker').value;
+      const size = parseInt(document.getElementById('editSizePicker').value, 10);
+
+      if (editState.tool === 'draw' || editState.tool === 'highlight') {
+        if (editState.currentPath.length > 1) {
+          editState.annotations[editState.currentPage].push({
+            type: editState.tool,
+            points: [...editState.currentPath],
+            color: editState.tool === 'highlight' ? '#facc15' : color,
+            width: editState.tool === 'highlight' ? size * 1.4 : Math.max(2, size / 5)
+          });
+        }
+      } else if (editState.tool === 'redact') {
+        const pos = getCanvasCoords(editOverlay, clientX, clientY);
+        const w = pos.x - editState.startX;
+        const h = pos.y - editState.startY;
+        if (Math.abs(w) > 4 && Math.abs(h) > 4) {
+          editState.annotations[editState.currentPage].push({
+            type: 'redact',
+            x: Math.min(editState.startX, pos.x),
+            y: Math.min(editState.startY, pos.y),
+            w: Math.abs(w),
+            h: Math.abs(h)
+          });
+        }
+      }
+      redrawEditAnnotations();
+    }
+
+    editOverlay.addEventListener('mousedown', (e) => handleEditPointerDown(e.clientX, e.clientY));
+    editOverlay.addEventListener('mousemove', (e) => handleEditPointerMove(e.clientX, e.clientY));
+    editOverlay.addEventListener('mouseup', (e) => handleEditPointerUp(e.clientX, e.clientY));
+
+    editOverlay.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      handleEditPointerDown(t.clientX, t.clientY);
+    }, { passive: false });
+    editOverlay.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      handleEditPointerMove(t.clientX, t.clientY);
+    }, { passive: false });
+    editOverlay.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      handleEditPointerUp(t.clientX, t.clientY);
+    }, { passive: false });
+
+    function closeTextModal() {
+      const modal = document.getElementById('textInputModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function confirmAddTextAnnotation() {
+      const text = document.getElementById('modalTextInput').value.trim();
+      if (text && editState.pendingTextCoords) {
+        if (!editState.annotations[editState.currentPage]) {
+          editState.annotations[editState.currentPage] = [];
+        }
+        editState.annotations[editState.currentPage].push({
+          type: 'text',
+          text,
+          x: editState.pendingTextCoords.x,
+          y: editState.pendingTextCoords.y,
+          color: document.getElementById('editColorPicker').value,
+          size: parseInt(document.getElementById('editSizePicker').value, 10)
+        });
+        redrawEditAnnotations();
+      }
+      closeTextModal();
+    }
+
+    // Permetti conferma con tasto Invio nella modale testo
+    document.getElementById('modalTextInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') confirmAddTextAnnotation();
+    });
+
+    function redrawEditAnnotations() {
+      const ctx = editOverlay.getContext('2d');
+      ctx.clearRect(0, 0, editOverlay.width, editOverlay.height);
+      const list = editState.annotations[editState.currentPage] || [];
+
+      list.forEach(item => {
+        ctx.save();
+        if (item.type === 'text') {
+          ctx.font = `600 ${item.size}px Inter, sans-serif`;
+          ctx.fillStyle = item.color;
+          ctx.fillText(item.text, item.x, item.y);
+        } else if (item.type === 'draw' || item.type === 'highlight') {
+          ctx.beginPath();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = item.type === 'highlight' ? 'rgba(250, 204, 21, 0.45)' : item.color;
+          ctx.lineWidth = item.width;
+          item.points.forEach((pt, i) => {
+            if (i === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+          });
+          ctx.stroke();
+        } else if (item.type === 'redact') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(item.x, item.y, item.w, item.h);
+        }
+        ctx.restore();
+      });
+    }
+
+    function undoEditAction() {
+      const list = editState.annotations[editState.currentPage];
+      if (list && list.length > 0) {
+        list.pop();
+        redrawEditAnnotations();
+        showToast('Ultima annotazione annullata', 'info');
+      }
+    }
+
+    function hexToRgbNorm(hex) {
+      const clean = hex.replace('#', '');
+      const r = parseInt(clean.substring(0, 2), 16) / 255;
+      const g = parseInt(clean.substring(2, 4), 16) / 255;
+      const b = parseInt(clean.substring(4, 6), 16) / 255;
+      return PDFLib.rgb(r, g, b);
+    }
+
+    async function saveEditedPDF() {
+      if (!editState.pdfBytes) {
+        showToast('Carica prima un documento PDF da modificare.', 'error');
+        return;
+      }
+
+      try {
+        const pdfDoc = await PDFLib.PDFDocument.load(editState.pdfBytes);
+        const helveticaBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+        const pages = pdfDoc.getPages();
+
+        for (const [pageNumStr, annList] of Object.entries(editState.annotations)) {
+          const pageIdx = parseInt(pageNumStr, 10) - 1;
+          if (pageIdx < 0 || pageIdx >= pages.length || !annList.length) continue;
+
+          const page = pages[pageIdx];
+          const { width: pdfW, height: pdfH } = page.getSize();
+          // Calcola rapporto tra dimensioni reali PDF e canvas renderizzato
+          const jsPage = await editState.pdfDocJs.getPage(pageIdx + 1);
+          const vp = jsPage.getViewport({ scale: editState.scale });
+          const ratioX = pdfW / vp.width;
+          const ratioY = pdfH / vp.height;
+
+          annList.forEach(item => {
+            if (item.type === 'text') {
+              page.drawText(item.text, {
+                x: item.x * ratioX,
+                y: pdfH - (item.y * ratioY),
+                size: item.size * ratioY,
+                font: helveticaBold,
+                color: hexToRgbNorm(item.color)
+              });
+            } else if (item.type === 'redact') {
+              page.drawRectangle({
+                x: item.x * ratioX,
+                y: pdfH - ((item.y + item.h) * ratioY),
+                width: item.w * ratioX,
+                height: item.h * ratioY,
+                color: PDFLib.rgb(1, 1, 1)
+              });
+            } else if (item.type === 'draw' || item.type === 'highlight') {
+              const color = item.type === 'highlight' ? PDFLib.rgb(0.98, 0.8, 0.08) : hexToRgbNorm(item.color);
+              const opacity = item.type === 'highlight' ? 0.42 : 1;
+              const thickness = item.width * ratioX;
+
+              for (let i = 1; i < item.points.length; i++) {
+                const p1 = item.points[i - 1];
+                const p2 = item.points[i];
+                page.drawLine({
+                  start: { x: p1.x * ratioX, y: pdfH - p1.y * ratioY },
+                  end: { x: p2.x * ratioX, y: pdfH - p2.y * ratioY },
+                  thickness,
+                  color,
+                  opacity
+                });
+              }
+            }
+          });
+        }
+
+        const modifiedBytes = await pdfDoc.save();
+        downloadBlob(modifiedBytes, 'documento_modificato.pdf', 'application/pdf');
+        showToast('PDF modificato salvato e scaricato!', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Errore durante il salvataggio del PDF modificato.', 'error');
+      }
+    }
+
+    // =========================================================================
+    // 4. FIRMA PDF (SIGNATURE PAD + DRAG & DROP SU PDF + PDF-LIB EMBED)
+    // =========================================================================
+    let signState = {
+      pdfBytes: null,
+      pdfDocJs: null,
+      currentPage: 1,
+      totalPages: 0,
+      scale: 1.3,
+      inkColor: '#0f172a',
+      isSigning: false,
+      hasSignatureDrawn: false,
+      signatureDataUrl: null,
+      placedPage: null
+    };
+
+    const sigPad = document.getElementById('signaturePadCanvas');
+    const sigCtx = sigPad.getContext('2d');
+
+    function resizeSignaturePad() {
+      const rect = sigPad.getBoundingClientRect();
+      if (rect.width === 0) return;
+      sigPad.width = rect.width;
+      sigPad.height = rect.height;
+      sigCtx.lineCap = 'round';
+      sigCtx.lineJoin = 'round';
+      sigCtx.lineWidth = 2.6;
+      sigCtx.strokeStyle = signState.inkColor;
+    }
+
+    function setSignInk(color) {
+      signState.inkColor = color;
+      sigCtx.strokeStyle = color;
+      showToast(color === '#1d4ed8' ? 'Inchiostro Blu selezionato' : 'Inchiostro Nero selezionato', 'info');
+    }
+
+    function clearSignaturePad() {
+      sigCtx.clearRect(0, 0, sigPad.width, sigPad.height);
+      signState.hasSignatureDrawn = false;
+    }
+
+    // Eventi disegno sul Signature Pad
+    function startSigStroke(clientX, clientY) {
+      const pos = getCanvasCoords(sigPad, clientX, clientY);
+      signState.isSigning = true;
+      signState.hasSignatureDrawn = true;
+      sigCtx.strokeStyle = signState.inkColor;
+      sigCtx.lineWidth = 2.6;
+      sigCtx.beginPath();
+      sigCtx.moveTo(pos.x, pos.y);
+    }
+
+    function moveSigStroke(clientX, clientY) {
+      if (!signState.isSigning) return;
+      const pos = getCanvasCoords(sigPad, clientX, clientY);
+      sigCtx.lineTo(pos.x, pos.y);
+      sigCtx.stroke();
+    }
+
+    function endSigStroke() {
+      signState.isSigning = false;
+    }
+
+    sigPad.addEventListener('mousedown', (e) => startSigStroke(e.clientX, e.clientY));
+    sigPad.addEventListener('mousemove', (e) => moveSigStroke(e.clientX, e.clientY));
+    sigPad.addEventListener('mouseup', endSigStroke);
+    sigPad.addEventListener('mouseleave', endSigStroke);
+
+    sigPad.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      startSigStroke(t.clientX, t.clientY);
+    }, { passive: false });
+    sigPad.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      moveSigStroke(t.clientX, t.clientY);
+    }, { passive: false });
+    sigPad.addEventListener('touchend', endSigStroke);
+
+    function uploadSignatureImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        signState.signatureDataUrl = e.target.result;
+        placeSignatureBoxOnPdf(signState.signatureDataUrl);
+        showToast('Immagine firma caricata!', 'success');
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    }
+
+    function applySignatureToPage() {
+      if (!signState.pdfDocJs) {
+        showToast('Carica prima un PDF da firmare a destra.', 'error');
+        return;
+      }
+      if (!signState.hasSignatureDrawn && !signState.signatureDataUrl) {
+        showToast('Disegna prima la tua firma nel riquadro oppure carica un\'immagine.', 'error');
+        return;
+      }
+      if (signState.hasSignatureDrawn) {
+        signState.signatureDataUrl = sigPad.toDataURL('image/png');
+      }
+      placeSignatureBoxOnPdf(signState.signatureDataUrl);
+      showToast('Firma applicata! Trascinala nella posizione desiderata.', 'success');
+    }
+
+    function placeSignatureBoxOnPdf(dataUrl) {
+      if (!signState.pdfDocJs) {
+        showToast('Carica prima un PDF da firmare.', 'error');
+        return;
+      }
+      const box = document.getElementById('draggableSignatureBox');
+      const img = document.getElementById('placedSignatureImg');
+      img.src = dataUrl;
+      box.classList.remove('hidden');
+      signState.placedPage = signState.currentPage;
+    }
+
+    function removePlacedSignature() {
+      document.getElementById('draggableSignatureBox').classList.add('hidden');
+      signState.placedPage = null;
+      showToast('Firma rimossa dalla pagina', 'info');
+    }
+
+    function updateSignatureSize(val) {
+      document.getElementById('signScaleValue').textContent = `${val} px`;
+      document.getElementById('draggableSignatureBox').style.width = `${val}px`;
+    }
+
+    // Trascinamento fluido del box firma sul foglio PDF (Mouse + Touch)
+    const sigBox = document.getElementById('draggableSignatureBox');
+    const signWrapper = document.getElementById('signCanvasWrapper');
+    let isDraggingSig = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    function startDragSig(clientX, clientY) {
+      isDraggingSig = true;
+      const boxRect = sigBox.getBoundingClientRect();
+      dragOffsetX = clientX - boxRect.left;
+      dragOffsetY = clientY - boxRect.top;
+    }
+
+    function moveDragSig(clientX, clientY) {
+      if (!isDraggingSig) return;
+      const wrapRect = signWrapper.getBoundingClientRect();
+      let newLeft = clientX - wrapRect.left - dragOffsetX;
+      let newTop = clientY - wrapRect.top - dragOffsetY;
+
+      // Limita dentro i bordi del foglio PDF
+      newLeft = Math.max(0, Math.min(newLeft, wrapRect.width - sigBox.offsetWidth));
+      newTop = Math.max(0, Math.min(newTop, wrapRect.height - sigBox.offsetHeight));
+
+      sigBox.style.left = `${newLeft}px`;
+      sigBox.style.top = `${newTop}px`;
+    }
+
+    function endDragSig() {
+      isDraggingSig = false;
+    }
+
+    sigBox.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startDragSig(e.clientX, e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => moveDragSig(e.clientX, e.clientY));
+    window.addEventListener('mouseup', endDragSig);
+
+    sigBox.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      startDragSig(t.clientX, t.clientY);
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (!isDraggingSig) return;
+      const t = e.touches[0];
+      moveDragSig(t.clientX, t.clientY);
+    }, { passive: false });
+    window.addEventListener('touchend', endDragSig);
+
+    async function loadSignPDF(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        signState.pdfBytes = new Uint8Array(arrayBuffer.slice(0));
+        signState.pdfDocJs = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        signState.totalPages = signState.pdfDocJs.numPages;
+        signState.currentPage = 1;
+        signState.placedPage = null;
+
+        document.getElementById('signEmptyState').classList.add('hidden');
+        document.getElementById('signCanvasWrapper').classList.remove('hidden');
+        document.getElementById('draggableSignatureBox').classList.add('hidden');
+
+        await renderSignPage();
+        showToast(`Documento pronto per la firma (${signState.totalPages} pagine)`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Errore nel caricamento del PDF da firmare.', 'error');
+      }
+      event.target.value = '';
+    }
+
+    async function renderSignPage() {
+      if (!signState.pdfDocJs) return;
+      const page = await signState.pdfDocJs.getPage(signState.currentPage);
+      const viewport = page.getViewport({ scale: signState.scale });
+      const canvas = document.getElementById('signPdfCanvas');
+      const ctx = canvas.getContext('2d');
+
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      document.getElementById('signPageIndicator').textContent = `Pagina ${signState.currentPage} / ${signState.totalPages}`;
+
+      // Mostra il box firma solo sulla pagina in cui è stato posizionato
+      const box = document.getElementById('draggableSignatureBox');
+      if (signState.placedPage === signState.currentPage && signState.signatureDataUrl) {
+        box.classList.remove('hidden');
+      } else {
+        box.classList.add('hidden');
+      }
+    }
+
+    function changeSignPage(delta) {
+      if (!signState.pdfDocJs) return;
+      const next = signState.currentPage + delta;
+      if (next >= 1 && next <= signState.totalPages) {
+        signState.currentPage = next;
+        renderSignPage();
+      }
+    }
+
+    async function saveSignedPDF() {
+      if (!signState.pdfBytes) {
+        showToast('Carica prima un file PDF da firmare.', 'error');
+        return;
+      }
+      if (!signState.placedPage || !signState.signatureDataUrl) {
+        showToast('Applica prima la firma sulla pagina del documento.', 'error');
+        return;
+      }
+
+      try {
+        const pdfDoc = await PDFLib.PDFDocument.load(signState.pdfBytes);
+        const pages = pdfDoc.getPages();
+        const targetPage = pages[signState.placedPage - 1];
+        const { width: pdfW, height: pdfH } = targetPage.getSize();
+
+        // Incorpora immagine firma (PNG o JPG)
+        let embeddedImg;
+        if (signState.signatureDataUrl.startsWith('data:image/jpeg') || signState.signatureDataUrl.startsWith('data:image/jpg')) {
+          embeddedImg = await pdfDoc.embedJpg(signState.signatureDataUrl);
+        } else {
+          embeddedImg = await pdfDoc.embedPng(signState.signatureDataUrl);
+        }
+
+        // Calcola coordinate esatte proporzionali al foglio PDF reale
+        const wrapRect = signWrapper.getBoundingClientRect();
+        const imgEl = document.getElementById('placedSignatureImg');
+        const imgRect = imgEl.getBoundingClientRect();
+
+        const relX = (imgRect.left - wrapRect.left) / wrapRect.width;
+        const relY = (imgRect.top - wrapRect.top) / wrapRect.height;
+        const relW = imgRect.width / wrapRect.width;
+        const relH = imgRect.height / wrapRect.height;
+
+        const finalW = relW * pdfW;
+        const finalH = relH * pdfH;
+        const finalX = relX * pdfW;
+        const finalY = pdfH - (relY * pdfH) - finalH;
+
+        targetPage.drawImage(embeddedImg, {
+          x: finalX,
+          y: finalY,
+          width: finalW,
+          height: finalH
+        });
+
+        const signedBytes = await pdfDoc.save();
+        downloadBlob(signedBytes, 'documento_firmato.pdf', 'application/pdf');
+        showToast('PDF firmato con successo e scaricato!', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Errore durante il salvataggio del PDF firmato.', 'error');
+      }
+    }
+
+    // =========================================================================
+    // UTILITY DOWNLOAD BLOB
+    // =========================================================================
+    function downloadBlob(bytes, filename, mimeType) {
+      const blob = new Blob([bytes], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // Inizializzazione al caricamento finestra
+    window.addEventListener('load', () => {
+      resizeSignaturePad();
+    });
+    window.addEventListener('resize', () => {
+      if (!document.getElementById('section-sign').classList.contains('hidden')) {
+        resizeSignaturePad();
+      }
+    });
+  </script>
+</body>
+</html>
